@@ -94,22 +94,31 @@ public class Main {
 //            downImages(subTitle + "/" + fileName, originalImageUrl);
 //        });
 //
-        downImages("[春待氷柱 (市町村)] 十二時の魔法使い [中国翻訳] [DL版]\\004.jpg", "https://exhentai.org/s/cf26aee063/1464160-4");
+        downLoadAndSaveImg("[春待氷柱 (市町村)] 十二時の魔法使い [中国翻訳] [DL版]\\004.jpg", "https://exhentai.org/s/cf26aee063/1464160-4");
     }
 
 
-    static void downImages(final String filePath, String imgUrl) {
+    static void downLoadAndSaveImg(String filePath, String imgUrl) {
 
         File file = FileUtil.file(filePath);
-        log.info("下载文件[{}]", file.getAbsolutePath());
+        log.info("创建文件[{}]", file.getAbsolutePath());
+        downImages(file,imgUrl);
+    }
 
+    static void downImages(File file, String imgUrl) {
 
         Map<String, String> cookies = getCookies();
         ArrayList<HttpCookie> cookieArrayList = new ArrayList<>();
         cookies.forEach((s, s2) -> cookieArrayList.add(new HttpCookie(s, s2)));
         HttpResponse execute = HttpRequest.get(imgUrl).timeout(5000).cookie(cookieArrayList).execute();
+        execute.headers();
+        if (execute.getStatus() == 302) {
+            String redirectUrl = execute.header("Location");
+            log.info("重定向到[{}]", redirectUrl);
+            downImages(file, redirectUrl);
+        }
+        log.info("写入文件[{}]", file.getAbsolutePath());
         execute.writeBody(file, null);
-//        HttpUtil.downloadFile(imgUrl, file)
     }
 
 }
