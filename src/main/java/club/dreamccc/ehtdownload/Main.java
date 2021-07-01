@@ -1,26 +1,24 @@
 package club.dreamccc.ehtdownload;
 
 
+import club.dreamccc.ehtdownload.eneity.ComicImageHtml;
+import club.dreamccc.ehtdownload.eneity.ComicPage;
 import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.lang.Matcher;
+import cn.hutool.core.net.url.UrlBuilder;
+import cn.hutool.core.net.url.UrlQuery;
+import cn.hutool.core.text.StrFormatter;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.http.HttpRequest;
-import cn.hutool.http.HttpResponse;
-import kotlin.text.Regex;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.jetbrains.annotations.NotNull;
 import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.select.Elements;
 
 import java.io.*;
-import java.net.HttpCookie;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -65,90 +63,60 @@ public class Main {
             .followSslRedirects(true)
             .build();
 
-//    static Document getDocument(String url) {
-//        if (null == url) {
-//            return null;
-//        }
-//        Document doc = null;
-//        try {
-//            new Request.Builder().build()
-//            okHttpClient.newCall(new Request.Builder().build())
-//            log.debug("获取文档[{}]...", url);
-//            Jsoup.parse()
-//            doc = Jsoup.connect(url)
-//                    .cookies(getCookies())
-//                    .get();
-//            log.info("获取文档成功[{}]", doc.title());
-//        } catch (IOException e) {
-//            log.error("获取文档异常", e);
-//        }
-//        return doc;
-//    }
 
     public static void main(String[] args) throws IOException {
 
-        String url = "https://exhentai.org/g/1937930/e531678284/";
-        String index_0 = getHtml(url);
+        var comicIndexUrl = "https://exhentai.org/g/1937930/e531678284/";
+        var indexHtml = getHtml(comicIndexUrl);
+        int maxPageNum = getMaxPageNum(indexHtml);
 
-        String pageText = Jsoup.parse(index_0)
+        IntStream.range(0, maxPageNum - 1)
+                .boxed()
+                // 拼接后面几页的url
+                .map(pNum -> {
+                    var urlBuilder = UrlBuilder.ofHttpWithoutEncode(comicIndexUrl);
+                    var map = new HashMap<CharSequence, CharSequence>(urlBuilder.getQuery().getQueryMap());
+                    map.put("p", pNum + "");
+                    urlBuilder.setQuery(new UrlQuery(map));
+                    return urlBuilder.build();
+                })
+                .map(url -> new ComicPage(url, getHtml(url)))
+                // 获取图片页列表
+                .flatMap(comicPage -> comicPage.getComicImageUrls().stream())
+                .map(url -> new ComicImageHtml(url, getHtml(url)))
+                // 下载原图到本地
+                .forEach(comicImageHtml -> {
+                    byte[] bytes = downImages(comicImageHtml.getSourceImageUrl());
+                    File comicDir = FileUtil.mkdir("./" + comicImageHtml.getComicTitle());
+                    if (comicDir.exists()) {
+                        FileUtil.writeBytes(bytes, StrFormatter.format("./{}/{}",comicImageHtml.getComicTitle(),comicImageHtml.getImageName()));
+                    }
+                });
+
+
+    }
+
+    private static int getMaxPageNum(String html) {
+        String pageText = Jsoup.parse(html)
                 .select(".gtb .gpc ").text();
         // calc maxPageNum
         int[] pageInfo = Stream.of(pageText.split("\\D"))
                 .filter(s -> !s.isBlank())
                 .mapToInt(Integer::valueOf)
                 .toArray();
-        int pageSize = pageInfo[1] - pageInfo[0] + 1;
-        int total = pageInfo[2];
-        int maxPageNum = total / pageSize + (total % pageSize == 0 ? 0 : 1);
-        System.out.println(maxPageNum);
-        log.debug("maxPageNum: {}", maxPageNum);
 
+        final var imageIndexFirst = pageInfo[0];
+        final var imageIndexLast = pageInfo[1];
+        final var imageTotal = pageInfo[2];
 
+        final var pageSize = imageIndexLast - imageIndexFirst + 1;
+        final var pageNumTotal = imageTotal / pageSize + (imageTotal % pageSize == 0 ? 0 : 1);
+        final var pageNumCurrent = imageIndexFirst / pageSize + (imageIndexFirst % pageSize == 0 ? 0 : 1);
 
-
-
-
-//        Document document = getDocument("https://exhentai.org/g/1464160/94b5bd6708/");
-//
-//
-//        ComicInfoPage currentPage = new ComicInfoPage(document);
-//
-//
-//        List<ComicInfoPage> allInfoPage = new LinkedList<>();
-//        allInfoPage.add(currentPage);
-//        while (currentPage.hasNext()) {
-//            String nextPageUrl = currentPage.getNextPageUrl();
-//            Document docTemp = getDocument(nextPageUrl);
-//            currentPage = new ComicInfoPage(docTemp);
-//            allInfoPage.add(currentPage);
-//        }
-//        List<String> collect = allInfoPage.stream().flatMap(comicInfoPage -> comicInfoPage.getImgPageUrls().stream()).collect(Collectors.toList());
-//
-//        log.info("{}", collect);
-//
-//        String subTitle = currentPage.getSubTitle();
-//        collect.forEach(imgPageUrl -> {
-//            Document imgDoc = getDocument(imgPageUrl);
-//
-//            String[] fileNameTemps = imgDoc.select("#i2")
-//                    .last()
-//                    .text()
-//                    .split("::")[0]
-//                    .split(" ");
-//            String fileName = fileNameTemps[fileNameTemps.length - 1];
-//            String originalImageUrl = imgDoc
-//                    .select("#i7")
-//                    .select("a")
-//                    .attr("href");
-//
-//
-//            downImages(subTitle + "/" + fileName, originalImageUrl);
-//        });
-//
-//        downLoadAndSaveImg("[春待氷柱 (市町村)] 十二時の魔法使い [中国翻訳] [DL版]\\004.jpg", "https://exhentai.org/s/cf26aee063/1464160-4");
+        return pageNumTotal;
     }
 
-    private static String getHtml(String url) {
+    private synchronized static String getHtml(String url) {
         Request getDocReq = new Request.Builder()
                 .get()
                 .url(url)
@@ -176,29 +144,32 @@ public class Main {
         }
     }
 
+    static byte[] downImages(String imgUrl) {
 
-//    static void downLoadAndSaveImg(String filePath, String imgUrl) {
-//
-//        File file = FileUtil.file(filePath);
-//        log.info("创建文件[{}]", file.getAbsolutePath());
-//        downImages(file, imgUrl);
-//    }
+        Request getImageReq = new Request.Builder()
+                .get()
+                .url(imgUrl)
+                .build();
+        try {
+            Response execute = okHttpClient.newCall(getImageReq).execute();
+            if (execute.isSuccessful()) {
+                log.debug("call {} is Successful! {}", imgUrl, execute.message());
+                ResponseBody body = execute.body();
 
-//    static void downImages(File file, String imgUrl) {
-//
-//        Map<String, String> cookies = getCookies();
-//        ArrayList<HttpCookie> cookieArrayList = new ArrayList<>();
-//        OkHttpClient.Builder
-//        cookies.forEach((s, s2) -> cookieArrayList.add(new HttpCookie(s, s2)));
-//        HttpResponse execute = HttpRequest.get(imgUrl).timeout(5000).cookie(cookieArrayList).execute();
-//        execute.headers();
-//        if (execute.getStatus() == 302) {
-//            String redirectUrl = execute.header("Location");
-//            log.info("重定向到[{}]", redirectUrl);
-//            downImages(file, redirectUrl);
-//        }
-//        log.info("写入文件[{}]", file.getAbsolutePath());
-//        execute.writeBody(file, null);
-//    }
+                if (body == null) {
+                    throw new RuntimeException(execute.code() + ":Body为空,下载失败: " + execute.message());
+                }
+                try {
+                    return body.bytes();
+                } catch (IOException e) {
+                    throw new RuntimeException(execute.code() + ":读取Body失败: " + execute.message());
+                }
+            } else {
+                throw new RuntimeException(execute.code() + ": " + execute.message());
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("请求失败: " + e.getMessage() + "\nCause: " + e.getCause().getMessage());
+        }
+    }
 
 }
