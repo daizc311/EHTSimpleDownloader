@@ -2,12 +2,11 @@ package club.dreamccc.ehtdownload;
 
 
 import club.dreamccc.ehtdownload.eneity.ComicImageHtml;
-import club.dreamccc.ehtdownload.eneity.ComicPage;
+import club.dreamccc.ehtdownload.eneity.ComicPageHtml;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.net.url.UrlBuilder;
 import cn.hutool.core.net.url.UrlQuery;
 import cn.hutool.core.text.StrFormatter;
-import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.jetbrains.annotations.NotNull;
@@ -18,6 +17,7 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -63,10 +63,12 @@ public class Main {
             .followSslRedirects(true)
             .build();
 
+//    static Map<String >
 
     public static void main(String[] args) throws IOException {
-
-        var comicIndexUrl = "https://exhentai.org/g/1937930/e531678284/";
+//
+//        "https://exhentai.org/g/1937930/e531678284/"
+        var comicIndexUrl = args[0];
         var indexHtml = getHtml(comicIndexUrl);
         int maxPageNum = getMaxPageNum(indexHtml);
 
@@ -80,9 +82,9 @@ public class Main {
                     urlBuilder.setQuery(new UrlQuery(map));
                     return urlBuilder.build();
                 })
-                .map(url -> new ComicPage(url, getHtml(url)))
+                .map(url -> new ComicPageHtml(url, getHtml(url)))
                 // 获取图片页列表
-                .flatMap(comicPage -> comicPage.getComicImageUrls().stream())
+                .flatMap(comicPageHtml -> comicPageHtml.getComicImageUrls().stream())
                 .map(url -> new ComicImageHtml(url, getHtml(url)))
                 // 下载原图到本地
                 .forEach(comicImageHtml -> {
