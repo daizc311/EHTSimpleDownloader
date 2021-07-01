@@ -17,6 +17,7 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -63,12 +64,28 @@ public class Main {
             .followSslRedirects(true)
             .build();
 
-//    static Map<String >
+    private static Map<String, String> args(String[] args) {
+
+        return Arrays.stream(args)
+                .map(arg -> arg.split("="))
+                .filter(new Predicate<String[]>() {
+                    private Set<String> set = new HashSet<>();
+
+                    @Override
+                    public boolean test(String[] strings) {
+                        return set.add(strings[0]);
+                    }
+                })
+                .collect(Collectors.toMap(argz -> argz[0], argz -> argz[1]));
+
+    }
 
     public static void main(String[] args) throws IOException {
-//
-//        "https://exhentai.org/g/1937930/e531678284/"
-        var comicIndexUrl = args[0];
+
+
+        final var argMap = args(args);
+
+        var comicIndexUrl = argMap.get("u");
         var indexHtml = getHtml(comicIndexUrl);
         int maxPageNum = getMaxPageNum(indexHtml);
 
@@ -91,7 +108,7 @@ public class Main {
                     byte[] bytes = downImages(comicImageHtml.getSourceImageUrl());
                     File comicDir = FileUtil.mkdir("./" + comicImageHtml.getComicTitle());
                     if (comicDir.exists()) {
-                        FileUtil.writeBytes(bytes, StrFormatter.format("./{}/{}",comicImageHtml.getComicTitle(),comicImageHtml.getImageName()));
+                        FileUtil.writeBytes(bytes, StrFormatter.format("./{}/{}", comicImageHtml.getComicTitle(), comicImageHtml.getImageName()));
                     }
                 });
 
@@ -119,6 +136,10 @@ public class Main {
     }
 
     private synchronized static String getHtml(String url) {
+        return getHtml(url, 0);
+    }
+
+    private synchronized static String getHtml(String url, int retryCount) {
         Request getDocReq = new Request.Builder()
                 .get()
                 .url(url)
@@ -142,11 +163,20 @@ public class Main {
                 throw new RuntimeException(execute.code() + ": " + execute.message());
             }
         } catch (IOException e) {
-            throw new RuntimeException("请求失败: " + e.getMessage() + "\nCause: " + e.getCause().getMessage());
+            if (retryCount <= 5) {
+                log.info("请求失败，重试次数[{}]", ++retryCount);
+                return getHtml(url, retryCount);
+            } else {
+                throw new RuntimeException("请求失败: " + e.getMessage() + "\nCause: " + e.getCause().getMessage());
+            }
         }
     }
 
-    static byte[] downImages(String imgUrl) {
+    static synchronized byte[] downImages(String imgUrl) {
+        return downImages(imgUrl, 0);
+    }
+
+    static synchronized byte[] downImages(String imgUrl, int retryCount) {
 
         Request getImageReq = new Request.Builder()
                 .get()
@@ -170,7 +200,12 @@ public class Main {
                 throw new RuntimeException(execute.code() + ": " + execute.message());
             }
         } catch (IOException e) {
-            throw new RuntimeException("请求失败: " + e.getMessage() + "\nCause: " + e.getCause().getMessage());
+            if (retryCount <= 5) {
+                log.info("请求失败，重试次数[{}]", ++retryCount);
+                return downImages(imgUrl, retryCount);
+            } else {
+                throw new RuntimeException("请求失败: " + e.getMessage() + "\nCause: " + e.getCause().getMessage());
+            }
         }
     }
 
