@@ -27,7 +27,7 @@ public class Main {
 
     static final OkHttpClient okHttpClient = new OkHttpClient.Builder()
             .proxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 10809)))
-            .callTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
             .cookieJar(
                     new CookieJar() {
 
