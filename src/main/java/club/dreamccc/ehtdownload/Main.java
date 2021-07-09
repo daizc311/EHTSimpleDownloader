@@ -86,6 +86,9 @@ public class Main {
         final var argMap = args(args);
 
         var comicIndexUrl = argMap.get("u");
+        var skipNumStr = argMap.getOrDefault("skip", "0");
+        int skip = Integer.valueOf(skipNumStr);
+
         var indexHtml = getHtml(comicIndexUrl);
         int maxPageNum = getMaxPageNum(indexHtml);
 
@@ -102,6 +105,7 @@ public class Main {
                 .map(url -> new ComicPageHtml(url, getHtml(url)))
                 // 获取图片页列表
                 .flatMap(comicPageHtml -> comicPageHtml.getComicImageUrls().stream())
+                .skip(skip)
                 .map(url -> new ComicImageHtml(url, getHtml(url)))
                 // 下载原图到本地
                 .forEach(comicImageHtml -> {
