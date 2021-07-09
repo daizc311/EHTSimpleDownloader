@@ -89,13 +89,13 @@ public class Main {
         var indexHtml = getHtml(comicIndexUrl);
         int maxPageNum = getMaxPageNum(indexHtml);
 
-        IntStream.range(0, maxPageNum - 1)
+        IntStream.range(0, maxPageNum)
                 .boxed()
                 // 拼接后面几页的url
                 .map(pNum -> {
                     var urlBuilder = UrlBuilder.ofHttpWithoutEncode(comicIndexUrl);
                     var map = new HashMap<CharSequence, CharSequence>(urlBuilder.getQuery().getQueryMap());
-                    map.put("p", pNum + "");
+                    map.put("p", pNum - 1 + "");
                     urlBuilder.setQuery(new UrlQuery(map));
                     return urlBuilder.build();
                 })
