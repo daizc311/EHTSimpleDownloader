@@ -34,6 +34,10 @@ public class Main {
                         private final Map<String, Cookie> cookies = new HashMap<>();
 
                         {
+
+                            Map<String, String> env = System.getenv();
+
+
                             var cookieBuilder = new Cookie.Builder()
                                     .domain("exhentai.org")
                                     .path("/");
@@ -110,9 +114,24 @@ public class Main {
                 // 下载原图到本地
                 .forEach(comicImageHtml -> {
                     byte[] bytes = downImages(comicImageHtml.getSourceImageUrl());
-                    File comicDir = FileUtil.mkdir("./" + comicImageHtml.getComicTitle());
+
+                    String comicTitle = comicImageHtml.getComicTitle()
+                            .replace(":"," ")
+                            .replace("?"," ")
+                            .replace("*"," ")
+                            .replace("/"," ")
+                            .replace("|"," ")
+                            .replace("<"," ")
+                            .replace(">"," ")
+                            .replace("\"","")
+                            .replace("\\","")
+                            ;
+                    File comicDir = FileUtil.mkdir("./" + comicTitle);
                     if (comicDir.exists()) {
-                        FileUtil.writeBytes(bytes, StrFormatter.format("./{}/{}", comicImageHtml.getComicTitle(), comicImageHtml.getImageName()));
+                        String filePath = StrFormatter.format("./{}/{}", comicTitle, comicImageHtml.getImageName());
+                        File file = new File(filePath);
+                        log.info("下载文件到{}.",file.getAbsolutePath());
+                        FileUtil.writeBytes(bytes, file);
                     }
                 });
 
