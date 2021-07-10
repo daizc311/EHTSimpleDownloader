@@ -3,13 +3,15 @@ package club.dreamccc.ehtdownload;
 
 import club.dreamccc.ehtdownload.eneity.ComicImageHtml;
 import club.dreamccc.ehtdownload.eneity.ComicPageHtml;
+import club.dreamccc.ehtdownload.exception.CanIgnoreException;
+import club.dreamccc.ehtdownload.exception.CanRetryException;
+import club.dreamccc.ehtdownload.exception.ExhException;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.net.url.UrlBuilder;
 import cn.hutool.core.net.url.UrlQuery;
 import cn.hutool.core.text.StrFormatter;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
-import org.jetbrains.annotations.NotNull;
 import org.jsoup.Jsoup;
 
 import java.io.*;
@@ -28,42 +30,7 @@ public class Main {
     static final OkHttpClient okHttpClient = new OkHttpClient.Builder()
             .proxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 10809)))
             .callTimeout(20, TimeUnit.SECONDS)
-            .cookieJar(
-                    new CookieJar() {
-
-                        private final Map<String, Cookie> cookies = new HashMap<>();
-
-                        {
-
-                            Map<String, String> env = System.getenv();
-
-
-                            var cookieBuilder = new Cookie.Builder()
-                                    .domain("exhentai.org")
-                                    .path("/");
-                            cookies.put("exhentai.org#igneous", cookieBuilder.name("igneous").value("090464f47").build());
-                            cookies.put("exhentai.org#ipb_member_id", cookieBuilder.name("ipb_member_id").value("1950231").build());
-                            cookies.put("exhentai.org#ipb_pass_hash", cookieBuilder.name("ipb_pass_hash").value("247bb1ae9340b06e1e59700b61cbb5ad").build());
-                            cookies.put("exhentai.org#sk", cookieBuilder.name("sk").value("c6ulx84auvfhys8vcqg950njumjk").build());
-                            cookies.put("exhentai.org#u", cookieBuilder.name("u").value("1950231-0-tdhr5789obo").build());
-                        }
-
-                        @Override
-                        public void saveFromResponse(@NotNull HttpUrl httpUrl, @NotNull List<Cookie> list) {
-
-                            for (Cookie cookie : list) {
-                                cookies.put(cookie.domain() + "#" + cookie.name(), cookie);
-                            }
-                        }
-
-                        @NotNull
-                        @Override
-                        public List<Cookie> loadForRequest(@NotNull HttpUrl httpUrl) {
-
-                            return List.copyOf(cookies.values());
-                        }
-                    }
-            )
+            .cookieJar(new ExhEnvironmentCookieManager())
             .followRedirects(true)
             .followSslRedirects(true)
             .build();
@@ -84,7 +51,7 @@ public class Main {
 
     }
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, CanIgnoreException {
 
 
         final var argMap = args(args);
@@ -94,6 +61,7 @@ public class Main {
         int skip = Integer.valueOf(skipNumStr);
 
         var indexHtml = getHtml(comicIndexUrl);
+
         int maxPageNum = getMaxPageNum(indexHtml);
 
         IntStream.range(0, maxPageNum)
@@ -106,31 +74,48 @@ public class Main {
                     urlBuilder.setQuery(new UrlQuery(map));
                     return urlBuilder.build();
                 })
-                .map(url -> new ComicPageHtml(url, getHtml(url)))
+                .map(url -> {
+                    try {
+                        return new ComicPageHtml(url, getHtml(url));
+                    } catch (CanIgnoreException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
                 // 获取图片页列表
                 .flatMap(comicPageHtml -> comicPageHtml.getComicImageUrls().stream())
                 .skip(skip)
-                .map(url -> new ComicImageHtml(url, getHtml(url)))
+                .map(url -> {
+                    try {
+                        return new ComicImageHtml(url, getHtml(url));
+                    } catch (CanIgnoreException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
                 // 下载原图到本地
                 .forEach(comicImageHtml -> {
-                    byte[] bytes = downImages(comicImageHtml.getSourceImageUrl());
+                    byte[] bytes = new byte[0];
+                    try {
+                        bytes = downImages(comicImageHtml.getSourceImageUrl());
+                    } catch (CanIgnoreException e) {
+                        log.error(e.getMessage());
+                        return;
+                    }
 
                     String comicTitle = comicImageHtml.getComicTitle()
-                            .replace(":"," ")
-                            .replace("?"," ")
-                            .replace("*"," ")
-                            .replace("/"," ")
-                            .replace("|"," ")
-                            .replace("<"," ")
-                            .replace(">"," ")
-                            .replace("\"","")
-                            .replace("\\","")
-                            ;
+                            .replace(":", " ")
+                            .replace("?", " ")
+                            .replace("*", " ")
+                            .replace("/", " ")
+                            .replace("|", " ")
+                            .replace("<", " ")
+                            .replace(">", " ")
+                            .replace("\"", "")
+                            .replace("\\", "");
                     File comicDir = FileUtil.mkdir("./" + comicTitle);
                     if (comicDir.exists()) {
                         String filePath = StrFormatter.format("./{}/{}", comicTitle, comicImageHtml.getImageName());
                         File file = new File(filePath);
-                        log.info("下载文件到{}.",file.getAbsolutePath());
+                        log.info("下载文件到{}.", file.getAbsolutePath());
                         FileUtil.writeBytes(bytes, file);
                     }
                 });
@@ -141,6 +126,8 @@ public class Main {
     private static int getMaxPageNum(String html) {
         String pageText = Jsoup.parse(html)
                 .select(".gtb .gpc ").text();
+
+
         // calc maxPageNum
         int[] pageInfo = Stream.of(pageText.split("\\D"))
                 .filter(s -> !s.isBlank())
@@ -158,48 +145,52 @@ public class Main {
         return pageNumTotal;
     }
 
-    private synchronized static String getHtml(String url) {
+    private synchronized static String getHtml(String url) throws CanIgnoreException {
         return getHtml(url, 0);
     }
 
-    private synchronized static String getHtml(String url, int retryCount) {
+    private synchronized static String getHtml(String url, int retryCount) throws CanIgnoreException {
         Request getDocReq = new Request.Builder()
                 .get()
                 .url(url)
                 .build();
 
         try {
+            log.debug("call {}}", url);
             Response execute = okHttpClient.newCall(getDocReq).execute();
             if (execute.isSuccessful()) {
                 log.debug("call {} is Successful! {}", url, execute.message());
                 ResponseBody body = execute.body();
-
                 if (body == null) {
-                    return null;
+                    throw new CanIgnoreException(execute.code() + ":获取ResponseBody为空: " + execute.message());
                 }
                 try {
-                    return new String(body.bytes());
+                    final var bytes = body.bytes();
+                    if (bytes.length <= 10) {
+                        throw new ExhException("获取页面为空,请检查cookie是否设置正确");
+                    }
+                    return new String(bytes);
                 } catch (IOException e) {
-                    throw new RuntimeException(execute.code() + ":读取Body失败: " + execute.message());
+                    throw new CanRetryException(execute.code() + ":读取Body失败: " + execute.message());
                 }
             } else {
-                throw new RuntimeException(execute.code() + ": " + execute.message());
+                throw new CanRetryException(execute.code() + ": " + execute.message());
             }
-        } catch (IOException e) {
+        } catch (IOException|CanRetryException e) {
             if (retryCount <= 5) {
                 log.info("请求失败，重试次数[{}]", ++retryCount);
                 return getHtml(url, retryCount);
             } else {
-                throw new RuntimeException("请求失败: " + e.getMessage() + "\nCause: " + e.getCause().getMessage());
+                throw new CanIgnoreException("请求失败: " + e.getMessage() + "\nCause: " + e.getCause().getMessage());
             }
         }
     }
 
-    static synchronized byte[] downImages(String imgUrl) {
+    static synchronized byte[] downImages(String imgUrl) throws CanIgnoreException {
         return downImages(imgUrl, 0);
     }
 
-    static synchronized byte[] downImages(String imgUrl, int retryCount) {
+    static synchronized byte[] downImages(String imgUrl, int retryCount) throws CanIgnoreException {
 
         Request getImageReq = new Request.Builder()
                 .get()
@@ -212,22 +203,28 @@ public class Main {
                 ResponseBody body = execute.body();
 
                 if (body == null) {
-                    throw new RuntimeException(execute.code() + ":Body为空,下载失败: " + execute.message());
+                    throw new CanIgnoreException(execute.code() + ":获取ResponseBody为空: " + execute.message());
                 }
+                byte[] bodyBytes;
                 try {
-                    return body.bytes();
+                    bodyBytes = body.bytes();
                 } catch (IOException e) {
-                    throw new RuntimeException(execute.code() + ":读取Body失败: " + execute.message());
+                    throw new CanRetryException(execute.code() + ":读取Body失败: " + execute.message(),e);
                 }
+                if (Objects.equals(body.contentType(), MediaType.parse("text/html; charset=UTF-8"))) {
+                    String exMessage = new String(bodyBytes);
+                    throw new ExhException(exMessage);
+                }
+                return bodyBytes;
             } else {
-                throw new RuntimeException(execute.code() + ": " + execute.message());
+                throw new CanRetryException(execute.code() + ": " + execute.message());
             }
-        } catch (IOException e) {
+        } catch (IOException | CanRetryException e) {
             if (retryCount <= 5) {
                 log.info("请求失败，重试次数[{}]", ++retryCount);
                 return downImages(imgUrl, retryCount);
             } else {
-                throw new RuntimeException("请求失败: " + e.getMessage() + "\nCause: " + e.getCause().getMessage());
+                throw new CanIgnoreException("请求失败: " + e.getMessage() + "\nCause: " + e.getCause().getMessage());
             }
         }
     }
