@@ -33,11 +33,15 @@ public class ExhEnvironmentCookieManager implements CookieJar {
         }
 
         var sj = new StringJoiner("\n");
-        long maxCookieKeyLength = cookies.keySet().stream().filter(Objects::nonNull).mapToLong(String::length).max().orElse(0L);
+        long maxCookieKeyLength = cookies.values().stream().filter(Objects::nonNull).map(Cookie::name).mapToLong(String::length).max().orElse(0L);
         sj.add("\n=========== COOKIE INIT ===========");
         for (String cookiesKey : cookies.keySet()) {
             final var currentCookie = cookies.get(cookiesKey);
-            sj.add(String.format("%s \t %s",currentCookie.name(),currentCookie.value()));
+            var name = currentCookie.name();
+            while (name.length()<maxCookieKeyLength){
+                name= name.concat(" ");
+            }
+            sj.add(String.format("%s \t %s", name,currentCookie.value()));
         }
         sj.add("========= COOKIE INIT END =========");
       log.info(sj.toString());
