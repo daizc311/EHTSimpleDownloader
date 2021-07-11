@@ -51,7 +51,7 @@ public class ExhEnvironmentCookieManager implements CookieJar {
     public void saveFromResponse(@NotNull HttpUrl httpUrl, @NotNull List<Cookie> list) {
 
         for (Cookie cookie : list) {
-            cookies.put(cookie.domain() + "#" + cookie.name(), cookie);
+            cookies.put(String.format("exhentai.org#%s", cookie.name()), cookie);
         }
     }
 
