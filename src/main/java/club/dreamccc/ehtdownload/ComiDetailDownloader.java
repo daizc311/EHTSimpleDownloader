@@ -25,7 +25,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 @Slf4j
-public class Main {
+public class ComiDetailDownloader {
 
     static final OkHttpClient okHttpClient = new OkHttpClient.Builder()
             .proxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 10809)))
@@ -51,75 +51,87 @@ public class Main {
 
     }
 
-    public static void main(String[] args) throws IOException, CanIgnoreException {
+    public static void main(String[] args) {
 
+        try {
+            final var argMap = args(args);
 
-        final var argMap = args(args);
+            var comicIndexUrl = argMap.get("u");
+            var skipNumStr = argMap.getOrDefault("skip", "0");
+            int skip = Integer.valueOf(skipNumStr);
 
-        var comicIndexUrl = argMap.get("u");
-        var skipNumStr = argMap.getOrDefault("skip", "0");
-        int skip = Integer.valueOf(skipNumStr);
+            String indexHtml = null;
 
-        var indexHtml = getHtml(comicIndexUrl);
+            indexHtml = getHtml(comicIndexUrl);
 
-        int maxPageNum = getMaxPageNum(indexHtml);
+            int maxPageNum = getMaxPageNum(indexHtml);
 
-        IntStream.range(0, maxPageNum)
-                .boxed()
-                // 拼接后面几页的url
-                .map(pNum -> {
-                    var urlBuilder = UrlBuilder.ofHttpWithoutEncode(comicIndexUrl);
-                    var map = new HashMap<CharSequence, CharSequence>(urlBuilder.getQuery().getQueryMap());
-                    map.put("p", pNum - 1 + "");
-                    urlBuilder.setQuery(new UrlQuery(map));
-                    return urlBuilder.build();
-                })
-                .map(url -> {
-                    try {
-                        return new ComicPageHtml(url, getHtml(url));
-                    } catch (CanIgnoreException e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                // 获取图片页列表
-                .flatMap(comicPageHtml -> comicPageHtml.getComicImageUrls().stream())
-                .skip(skip)
-                .map(url -> {
-                    try {
-                        return new ComicImageHtml(url, getHtml(url));
-                    } catch (CanIgnoreException e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                // 下载原图到本地
-                .forEach(comicImageHtml -> {
-                    byte[] bytes = new byte[0];
-                    try {
-                        bytes = downImages(comicImageHtml.getSourceImageUrl());
-                    } catch (CanIgnoreException e) {
-                        log.error(e.getMessage());
-                        return;
-                    }
+            // 拼接后面几页的url
+            IntStream.range(0, maxPageNum)
+                    .boxed()
+                    .map(pNum -> {
+                        var urlBuilder = UrlBuilder.ofHttpWithoutEncode(comicIndexUrl);
+                        var map = new HashMap<CharSequence, CharSequence>(urlBuilder.getQuery().getQueryMap());
+                        map.put("p", pNum + "");
+                        urlBuilder.setQuery(new UrlQuery(map));
+                        return urlBuilder.build();
+                    })
+                    .map(url -> {
+                        try {
+                            return new ComicPageHtml(url, getHtml(url));
+                        } catch (CanIgnoreException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    // 获取图片页列表
+                    .flatMap(comicPageHtml -> comicPageHtml.getComicImageUrls().stream())
+                    .skip(skip)
+                    .map(url -> {
+                        try {
+                            return new ComicImageHtml(url, getHtml(url));
+                        } catch (CanIgnoreException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    // 下载原图到本地
+                    .forEach(comicImageHtml -> {
+                        byte[] bytes = new byte[0];
+                        final var sourceImageUrl = comicImageHtml.getSourceImageUrl();
+                        final var showImageUrl = comicImageHtml.getShowImageUrl();
+                        try {
+                            bytes = downImages(sourceImageUrl);
+                        } catch (ExhException | CanIgnoreException downloadSourceImageEx) {
+                            log.warn("下载原图出错，开始下载展示图片\n[source:{}]==>[show:{}]", sourceImageUrl, showImageUrl);
+                            try {
+                                bytes = downImages(showImageUrl);
+                            } catch (ExhException | CanIgnoreException downloadShowImageEx) {
+                                log.error(downloadShowImageEx.getMessage());
+                                return;
+                            }
+                        }
 
-                    String comicTitle = comicImageHtml.getComicTitle()
-                            .replace(":", " ")
-                            .replace("?", " ")
-                            .replace("*", " ")
-                            .replace("/", " ")
-                            .replace("|", " ")
-                            .replace("<", " ")
-                            .replace(">", " ")
-                            .replace("\"", "")
-                            .replace("\\", "");
-                    File comicDir = FileUtil.mkdir("./" + comicTitle);
-                    if (comicDir.exists()) {
-                        String filePath = StrFormatter.format("./{}/{}", comicTitle, comicImageHtml.getImageName());
-                        File file = new File(filePath);
-                        log.info("下载文件到{}.", file.getAbsolutePath());
-                        FileUtil.writeBytes(bytes, file);
-                    }
-                });
+                        String comicTitle = comicImageHtml.getComicTitle()
+                                .replace(":", " ")
+                                .replace("?", " ")
+                                .replace("*", " ")
+                                .replace("/", " ")
+                                .replace("|", " ")
+                                .replace("<", " ")
+                                .replace(">", " ")
+                                .replace("\"", "")
+                                .replace("\\", "");
+                        File comicDir = FileUtil.mkdir("./" + comicTitle);
+                        if (comicDir.exists()) {
+                            String filePath = StrFormatter.format("./{}/{}", comicTitle, comicImageHtml.getImageName());
+                            File file = new File(filePath);
+                            log.info("下载文件到{}.", file.getAbsolutePath());
+                            FileUtil.writeBytes(bytes, file);
+                        }
+                    });
 
+        } catch (CanIgnoreException e) {
+            log.error("", e);
+        }
 
     }
 
@@ -176,7 +188,7 @@ public class Main {
             } else {
                 throw new CanRetryException(execute.code() + ": " + execute.message());
             }
-        } catch (IOException|CanRetryException e) {
+        } catch (IOException | CanRetryException e) {
             if (retryCount <= 5) {
                 log.info("请求失败，重试次数[{}]", ++retryCount);
                 return getHtml(url, retryCount);
@@ -209,7 +221,7 @@ public class Main {
                 try {
                     bodyBytes = body.bytes();
                 } catch (IOException e) {
-                    throw new CanRetryException(execute.code() + ":读取Body失败: " + execute.message(),e);
+                    throw new CanRetryException(execute.code() + ":读取Body失败: " + execute.message(), e);
                 }
                 if (Objects.equals(body.contentType(), MediaType.parse("text/html; charset=UTF-8"))) {
                     String exMessage = new String(bodyBytes);

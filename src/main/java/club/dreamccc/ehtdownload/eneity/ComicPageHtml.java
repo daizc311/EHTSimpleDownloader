@@ -19,7 +19,7 @@ public class ComicPageHtml extends HtmlPage {
 
     public List<String> getComicImageUrls() {
 
-        return super.getJsoupDoc().select(".gdtl > a").stream().map(element -> element.attr("href")).collect(Collectors.toList());
+        return super.getJsoupDoc().select("#gdt a").stream().map(element -> element.attr("href")).collect(Collectors.toList());
     }
 
 }
