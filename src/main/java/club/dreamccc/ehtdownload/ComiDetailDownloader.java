@@ -98,10 +98,20 @@ public class ComiDetailDownloader {
                         byte[] bytes = new byte[0];
                         final var sourceImageUrl = comicImageHtml.getSourceImageUrl();
                         final var showImageUrl = comicImageHtml.getShowImageUrl();
-                        try {
-                            bytes = downImages(sourceImageUrl);
-                        } catch (ExhException | CanIgnoreException downloadSourceImageEx) {
-                            log.warn("下载原图出错，开始下载展示图片\n[source:{}]==>[show:{}]", sourceImageUrl, showImageUrl);
+
+                        if (sourceImageUrl != null && !sourceImageUrl.isBlank()) {
+                            try {
+                                bytes = downImages(sourceImageUrl);
+                            } catch (ExhException | CanIgnoreException downloadSourceImageEx) {
+                                log.warn("下载原图出错，开始下载展示图片\n[source:{}]==>[show:{}]", sourceImageUrl, showImageUrl);
+                                try {
+                                    bytes = downImages(showImageUrl);
+                                } catch (ExhException | CanIgnoreException downloadShowImageEx) {
+                                    log.error(downloadShowImageEx.getMessage());
+                                    return;
+                                }
+                            }
+                        }else {
                             try {
                                 bytes = downImages(showImageUrl);
                             } catch (ExhException | CanIgnoreException downloadShowImageEx) {
