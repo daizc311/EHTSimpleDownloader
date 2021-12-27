@@ -47,7 +47,7 @@ public class ComiDetailDownloader {
                         return set.add(strings[0]);
                     }
                 })
-                .collect(Collectors.toMap(argz -> argz[0], argz -> argz[1]));
+                .collect(Collectors.toMap(argz -> argz[0].replace("-",""), argz -> argz[1]));
 
     }
 
@@ -58,7 +58,8 @@ public class ComiDetailDownloader {
 
             var comicIndexUrl = argMap.get("u");
             var skipNumStr = argMap.getOrDefault("skip", "0");
-            int skip = Integer.valueOf(skipNumStr);
+            int skip = Integer.parseInt(skipNumStr);
+            var isDownloadSource =  Boolean.getBoolean(argMap.getOrDefault("downloadSource", "false"));
 
             String indexHtml = null;
 
@@ -99,7 +100,7 @@ public class ComiDetailDownloader {
                         final var sourceImageUrl = comicImageHtml.getSourceImageUrl();
                         final var showImageUrl = comicImageHtml.getShowImageUrl();
 
-                        if (sourceImageUrl != null && !sourceImageUrl.isBlank()) {
+                        if (isDownloadSource && sourceImageUrl != null && !sourceImageUrl.isBlank()) {
                             try {
                                 bytes = downImages(sourceImageUrl);
                             } catch (ExhException | CanIgnoreException downloadSourceImageEx) {
